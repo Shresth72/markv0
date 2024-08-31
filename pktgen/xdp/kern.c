@@ -49,5 +49,15 @@ int xdp_lib(struct xdp_md *ctx) {
     e.processing_time_ns = ts - e.timestamp;
     e.timestamp = ts;
     bpf_perf_event_output(ctx, &output_map, BPF_F_CURRENT_CPU, &e, sizeof(e));
+    return XDP_DROP;
   }
+
+  // Perf event for passing packet
+  e.type = TYPE_PASS;
+  __u64 ts = bpf_ktime_get_ns();
+  e.processing_time_ns = ts - e.timestamp;
+  e.timestamp = ts;
+  bpf_perf_event_output(ctx, &output_map, BPF_F_CURRENT_CPU, &e, sizeof(e));
+
+  return XDP_PASS;
 }
