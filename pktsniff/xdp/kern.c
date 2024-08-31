@@ -31,6 +31,19 @@ struct {
 SEC("xdp")
 int xdp_lib(struct xdp_md *ctx) {
   // Handling perf events and collecting data
+  /* We handle the perf events to collect data and measure the processing time
+   * of dropped and passed packets. We first emit a perf event when entering the
+XDP_DROP
+   * program (type 1). Then, we use a randomization mechanism to decide whether
+   * to drop or pass the packet. If the packet is dropped, we emit a perf event
+   * with type 2 and return XDP_DROP. If the packet is passed, we emit a perf
+event
+   * with type 3 and return XDP_PASS.
+
+   * The bpf_ktime_get_ns() function is used to measure the timestamp
+(nanoseconds since
+   * system boot, excluding suspend time) and processing time of the packet.
+  */
 
   struct perf_trace_event e = {};
 
