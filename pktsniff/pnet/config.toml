@@ -1,0 +1,6 @@
+[general]
+mode = "summary"
+
+[alert]
+ip = "192.168.1.10"
+port = 5050

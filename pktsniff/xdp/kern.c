@@ -2,6 +2,7 @@
 
 #include <linux/bpf.h>
 #include <stdbool.h>
+#include <sys/resource.h>
 
 #include <bpf/bpf_helpers.h>
 
@@ -21,7 +22,7 @@ struct {
   // Map to store perf event
   __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
   __uint(key_size, sizeof(int));
-  __uint(value_size, sizeof(struct perf_trace_event));
+  __uint(value_size, 0);
   __uint(max_entries, 1024);
 } output_map SEC(".maps");
 
@@ -74,3 +75,5 @@ event
 
   return XDP_PASS;
 }
+
+char _license[] SEC("license") = "GPL";
