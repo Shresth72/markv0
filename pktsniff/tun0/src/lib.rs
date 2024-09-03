@@ -3,6 +3,7 @@ mod tcp;
 mod udp;
 mod utils;
 
+use rand::Rng;
 use tcp::TcpListener;
 use udp::UdpListener;
 use utils::Quad;
@@ -74,5 +75,34 @@ impl Interface {
             port,
             ih: self.ih.as_mut().unwrap().clone(),
         })
+    }
+}
+
+fn packet_handler_loop(mut nic: tun_tap::Iface, ih: InterfaceHandle) -> io::Result<()> {
+    // Loop to handle packets and collect its metadata
+    // use a random number generator and drop the packets 50% of the time
+    // (like if the number is even, drop it else pass it)
+    // and also store and print the amount of dropped and passed packets
+
+    let mut rng = rand::thread_rng();
+    let mut passed_packets = 0;
+    let mut dropped_packets = 0;
+
+    loop {
+        let mut buf = [0u8; 1504];
+        let nbytes = nic.recv(&mut buf)?;
+
+        if rng.gen::<u8>() % 2 == 0 {
+            passed_packets += 1;
+            eprintln!("Packet passed");
+        } else {
+            dropped_packets += 1;
+            eprintln!("Packet dropped");
+        }
+
+        eprintln!(
+            "Passed packets: {}, Dropped packets: {}",
+            passed_packets, dropped_packets
+        );
     }
 }
