@@ -1,6 +1,7 @@
 use std::{
-    io,
+    io::{self, Read},
     net::{SocketAddr, TcpListener as StdTcpListener, TcpStream},
+    usize,
 };
 
 use crate::InterfaceHandle;
