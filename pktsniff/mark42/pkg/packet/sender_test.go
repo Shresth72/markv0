@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
 	"github.com/google/gopacket"
@@ -143,9 +144,30 @@ func TestSenderWithWriteErrorReturnsError(t *testing.T) {
 
 	result := chanToSlice(t, chanErrToGeneric(errc), 1)
 	assert.Equal(t, 1, len(result), "error slice size is invalid")
-  fmt.Println(result)
+	fmt.Println(result)
 	assert.Error(t, result[0].(error))
 
 	result = chanToSlice(t, done, 0)
+	assert.Equal(t, 0, len(result), "error slice is not empty")
+}
+
+func TestSenderWithTimeout(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	w := NewMockWriter(ctrl)
+	s := NewPacketSender(w)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+
+	done, errc := s.SendPackets(ctx, nil)
+	select {
+	case <-errc:
+	case <-time.After(1 * time.Second):
+		require.FailNow(t, "exit timeout")
+	}
+
+	result := chanToSlice(t, done, 0)
 	assert.Equal(t, 0, len(result), "error slice is not empty")
 }

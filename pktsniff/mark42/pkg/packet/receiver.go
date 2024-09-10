@@ -12,28 +12,25 @@ import (
 	"github.com/google/gopacket"
 )
 
-// Processor
 type Processor interface {
-	ProcesPacketData(data []byte, ci *gopacket.CaptureInfo) error
+	ProcessPacketData(data []byte, ci *gopacket.CaptureInfo) error
 }
 
-// Reader
 type Reader interface {
 	ReadPacketData() (data []byte, ci *gopacket.CaptureInfo, err error)
 }
 
-// Receiver
 type Receiver interface {
 	ReceivePackets(ctx context.Context) <-chan error
 }
 
-type PacketReceiver struct {
-	sr Reader
-	p  Processor
+func NewReceiver(sr Reader, p Processor) Receiver {
+	return &receiver{sr, p}
 }
 
-func NewReceiver(sr Reader, p Processor) Receiver {
-	return &PacketReceiver{sr, p}
+type receiver struct {
+	sr Reader
+	p  Processor
 }
 
 func isTemporaryError(err error) bool {
@@ -54,48 +51,42 @@ func isUnrecoverableError(err error) bool {
 	}
 }
 
-func (r *PacketReceiver) ReceivePackets(ctx context.Context) <-chan error {
-	errchan := make(chan error, 100)
-	go func() error {
-		defer close(errchan)
+func (r *receiver) ReceivePackets(ctx context.Context) <-chan error {
+	errc := make(chan error, 100)
+	go func() {
+		defer close(errc)
 		for {
 			select {
 			case <-ctx.Done():
-				return <-errchan
+				return
 			default:
 			}
-
 			data, ci, err := r.sr.ReadPacketData()
 			if err != nil {
-				// Immediately retry for temporary errors
 				if isTemporaryError(err) {
 					continue
 				}
 				if isUnrecoverableError(err) {
-					return <-errchan
+					return
 				}
 
-				// Log unknown error
 				select {
 				case <-ctx.Done():
-					return <-errchan
-				case errchan <- err:
+					return
+				case errc <- err:
 				}
 
-				// Sleep briefly and try again
 				time.Sleep(5 * time.Millisecond)
 				continue
 			}
-
-			if err := r.p.ProcesPacketData(data, ci); err != nil {
+			if err := r.p.ProcessPacketData(data, ci); err != nil {
 				select {
 				case <-ctx.Done():
-					return <-errchan
-				case errchan <- err:
+					return
+				case errc <- err:
 				}
 			}
 		}
 	}()
-
-	return errchan
+	return errc
 }
