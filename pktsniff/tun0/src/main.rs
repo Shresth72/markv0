@@ -14,13 +14,11 @@ fn main() -> io::Result<()> {
         println!("got connection from {:?}", addr);
 
         thread::spawn(move || {
-            // Handle the connection, e.g., read/write to the stream
             let mut buffer = [0; 512];
             loop {
                 match stream.read(&mut buffer) {
-                    Ok(0) => break, // Connection closed
+                    Ok(0) => break,
                     Ok(s) => {
-                        // Process packet (here you can implement your logic)
                         println!("read: {}", s);
                     }
                     Err(e) => {

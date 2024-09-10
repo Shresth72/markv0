@@ -200,7 +200,7 @@ func (o *ipScanCmdOpts) parseOptions(scanName string, args []string) (err error)
 	if o.scanRange, err = o.getScanRange(dstSubnet); err != nil {
 		return
 	}
-	if o.scanRange.SrcMAC == nil {
+	if o.scanRange.SrcMAC == nil {ayu
 		o.vpnMode = true
 	}
 

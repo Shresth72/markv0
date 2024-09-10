@@ -79,11 +79,6 @@ impl Interface {
 }
 
 fn packet_handler_loop(mut nic: tun_tap::Iface, ih: InterfaceHandle) -> io::Result<()> {
-    // Loop to handle packets and collect its metadata
-    // use a random number generator and drop the packets 50% of the time
-    // (like if the number is even, drop it else pass it)
-    // and also store and print the amount of dropped and passed packets
-
     let mut rng = rand::thread_rng();
     let mut passed_packets = 0;
     let mut dropped_packets = 0;
