@@ -46,11 +46,13 @@ int main(int argc, char *argv[]) {
   NetDeviceContainer devices;
   devices = p2p.Install(nodes);
 
+  // Internet Stack
   // Install the TCP/IP protocol stack on both nodes
   // So they can communicate using standard Internet protocols
   InternetStackHelper stack;
   stack.Install(nodes);
 
+  // IP Address Assignment
   // IP addresses are assigned to the devices (interfaces) on the nodes
   // The address range used is `192.168.40.0/24`
   Ipv4AddressHelper address;
