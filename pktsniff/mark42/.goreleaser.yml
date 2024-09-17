@@ -1,0 +1,27 @@
+gomod:
+  proxy: true
+builds:
+  - env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+    flags:
+      - -trimpath
+    ldflags:
+      - -linkmode external -extldflags '-static' -s -w -X main.version={{.Version}} -X main.commit={{.Commit}}
+    mod_timestamp: '{{ .CommitTimestamp }}'
+archives:
+  - files:
+      - none*
+checksum:
+  algorithm: sha256
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^(\s)*docs:'
+      - '^(\s)*test:'
+      - Merge pull request
+      - update README

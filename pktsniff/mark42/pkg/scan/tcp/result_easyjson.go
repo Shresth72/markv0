@@ -17,7 +17,7 @@ var (
 	_ easyjson.Marshaler
 )
 
-func easyjsonA8726613DecodeGithubComShresth72Mark42PkgScanTcp(in *jlexer.Lexer, out *ScanResult) {
+func easyjsonD3b49167DecodeGithubComVByteCpuSxPkgScanTcp(in *jlexer.Lexer, out *ScanResult) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -54,7 +54,7 @@ func easyjsonA8726613DecodeGithubComShresth72Mark42PkgScanTcp(in *jlexer.Lexer, 
 		in.Consumed()
 	}
 }
-func easyjsonA8726613EncodeGithubComShresth72Mark42PkgScanTcp(out *jwriter.Writer, in ScanResult) {
+func easyjsonD3b49167EncodeGithubComVByteCpuSxPkgScanTcp(out *jwriter.Writer, in ScanResult) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -84,23 +84,23 @@ func easyjsonA8726613EncodeGithubComShresth72Mark42PkgScanTcp(out *jwriter.Write
 // MarshalJSON supports json.Marshaler interface
 func (v ScanResult) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonA8726613EncodeGithubComShresth72Mark42PkgScanTcp(&w, v)
+	easyjsonD3b49167EncodeGithubComVByteCpuSxPkgScanTcp(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v ScanResult) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonA8726613EncodeGithubComShresth72Mark42PkgScanTcp(w, v)
+	easyjsonD3b49167EncodeGithubComVByteCpuSxPkgScanTcp(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *ScanResult) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonA8726613DecodeGithubComShresth72Mark42PkgScanTcp(&r, v)
+	easyjsonD3b49167DecodeGithubComVByteCpuSxPkgScanTcp(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ScanResult) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonA8726613DecodeGithubComShresth72Mark42PkgScanTcp(l, v)
+	easyjsonD3b49167DecodeGithubComVByteCpuSxPkgScanTcp(l, v)
 }

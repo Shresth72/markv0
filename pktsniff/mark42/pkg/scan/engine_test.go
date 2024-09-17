@@ -1,4 +1,4 @@
-// mockgen -package scan -destination=mock_engine_test.go -source=engine.go PacketSource, Scanner
+//go:generate mockgen -package scan -destination=mock_sendreceiver_test.go github.com/Shresth72/mark42/pkg/packet Sender,Receiver
 
 package scan
 

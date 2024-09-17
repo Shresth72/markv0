@@ -1,3 +1,5 @@
+//go:generate mockgen -destination=mock_receiver_test.go -package=packet -source receiver.go
+
 package packet
 
 import (
@@ -63,19 +65,20 @@ func (r *receiver) ReceivePackets(ctx context.Context) <-chan error {
 			}
 			data, ci, err := r.sr.ReadPacketData()
 			if err != nil {
+				// Immediately retry for temporary errors
 				if isTemporaryError(err) {
 					continue
 				}
 				if isUnrecoverableError(err) {
 					return
 				}
-
+				// Log unknown error
 				select {
 				case <-ctx.Done():
 					return
 				case errc <- err:
 				}
-
+				// Sleep briefly and try again
 				time.Sleep(5 * time.Millisecond)
 				continue
 			}

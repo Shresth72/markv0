@@ -27,9 +27,8 @@ func NewResultChan(ctx context.Context, capacity int) ResultChan {
 	results := make(chan Result, capacity)
 	internalResults := make(chan Result, capacity)
 
-	go func() {
+	copyChans := func() {
 		defer close(results)
-
 		for {
 			select {
 			case <-ctx.Done():
@@ -42,7 +41,8 @@ func NewResultChan(ctx context.Context, capacity int) ResultChan {
 				}
 			}
 		}
-	}()
+	}
+	go copyChans()
 
 	return &resultChan{
 		ctx:             ctx,

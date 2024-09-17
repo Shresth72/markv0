@@ -182,8 +182,8 @@ var cyclicGroups = []struct {
 	},
 }
 
-// Creates a pseduo random iterator for integer range [1..n]
-// Each integer is traversed exactly once
+// newRangeIterator creates a pseudo-random iterator for
+// integer range [1..n]. Each integer is traversed exactly once.
 func newRangeIterator(n int64) (*rangeIterator, error) {
 	// Here we apply cyclic groups
 	// (Z/pZ)* is a multiplicative group if p is a prime number
@@ -193,13 +193,13 @@ func newRangeIterator(n int64) (*rangeIterator, error) {
 		return nil, errRangeSize
 	}
 
+	// find first cyclic group that is larger than n
 	idx := sort.Search(len(cyclicGroups), func(i int) bool {
 		return cyclicGroups[i].P > n
 	})
 	if idx == len(cyclicGroups) {
 		return nil, errRangeSize
 	}
-
 	cyclic := cyclicGroups[idx]
 	P, G, N := big.NewInt(cyclic.P), big.NewInt(cyclic.G), big.NewInt(cyclic.N)
 
@@ -216,7 +216,6 @@ func newRangeIterator(n int64) (*rangeIterator, error) {
 	randM := big.NewInt(rand.Int63())
 	one := big.NewInt(1)
 	randM.Add(randM, one)
-
 	// if N is coprime with P-1 => (N ** randM) is coprime with P-1
 	// by Fermat's little theorem: (G ** M) mod P = (G ** (M mod (P-1))) mod P for any integer M
 	// prepare new group generator:

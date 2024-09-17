@@ -3,7 +3,6 @@ package packet
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -20,15 +19,14 @@ func TestSenderWithEmptyChannel(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	w := NewMockWriter(ctrl)
-	s := NewPacketSender(w)
+	s := NewSender(w)
 
 	done, errc := s.SendPackets(context.Background(), in)
 
 	result := chanToSlice(t, chanErrToGeneric(errc), 0)
 	assert.Equal(t, 0, len(result), "error slice is not empty")
-
 	result = chanToSlice(t, done, 0)
-	assert.Equal(t, 0, len(result), "done slice is not empty")
+	assert.Equal(t, 0, len(result), "error slice is not empty")
 }
 
 func TestSenderWithOnePacket(t *testing.T) {
@@ -46,19 +44,15 @@ func TestSenderWithOnePacket(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	w := NewMockWriter(ctrl)
-	w.EXPECT().WritePacketData(expectedData).Do(func(pkt []byte) {
-		fmt.Printf("Received pakcet data: %v\n", pkt)
-	}).Return(nil)
-	s := NewPacketSender(w)
+	w.EXPECT().WritePacketData(expectedData).Return(nil)
+	s := NewSender(w)
 
 	done, errc := s.SendPackets(context.Background(), in)
 
 	result := chanToSlice(t, chanErrToGeneric(errc), 0)
 	assert.Equal(t, 0, len(result), "error slice is not empty")
-
-	// Done channel should be empty after sending all packets
 	result = chanToSlice(t, done, 0)
-	assert.Equal(t, 0, len(result), "done slice is not empty")
+	assert.Equal(t, 0, len(result), "error slice is not empty")
 }
 
 func TestSenderWithTwoPackets(t *testing.T) {
@@ -81,30 +75,26 @@ func TestSenderWithTwoPackets(t *testing.T) {
 
 	expectedData := make([]byte, len(data))
 	copy(expectedData, data)
-	expectedData2 := make([]byte, len(data))
+	expectedData2 := make([]byte, len(data2))
 	copy(expectedData2, data2)
 
 	ctrl := gomock.NewController(t)
 	w := NewMockWriter(ctrl)
 	gomock.InOrder(
-		w.EXPECT().WritePacketData(expectedData).Do(func(pkt []byte) {
-			fmt.Printf("Received pakcet data: %v\n", pkt)
-		}).Return(nil),
-		w.EXPECT().WritePacketData(expectedData2).Do(func(pkt []byte) {
-			fmt.Printf("Received pakcet data: %v\n", pkt)
-		}).Return(nil),
+		w.EXPECT().WritePacketData(expectedData).Return(nil),
+		w.EXPECT().WritePacketData(expectedData2).Return(nil),
 	)
-	s := NewPacketSender(w)
+	s := NewSender(w)
 
 	done, errc := s.SendPackets(context.Background(), in)
 
 	result := chanToSlice(t, chanErrToGeneric(errc), 0)
 	assert.Equal(t, 0, len(result), "error slice is not empty")
 	result = chanToSlice(t, done, 0)
-	assert.Equal(t, 0, len(result), "done slice is not empty")
+	assert.Equal(t, 0, len(result), "error slice is not empty")
 }
 
-func TestSenderWithInvalidPacketsReturnsError(t *testing.T) {
+func TestSenderWithInvalidPacketReturnsError(t *testing.T) {
 	t.Parallel()
 	in := make(chan *BufferData, 1)
 	in <- &BufferData{Err: errors.New("invalid data")}
@@ -112,7 +102,7 @@ func TestSenderWithInvalidPacketsReturnsError(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	w := NewMockWriter(ctrl)
-	s := NewPacketSender(w)
+	s := NewSender(w)
 
 	done, errc := s.SendPackets(context.Background(), in)
 
@@ -121,14 +111,14 @@ func TestSenderWithInvalidPacketsReturnsError(t *testing.T) {
 	assert.Error(t, result[0].(error))
 
 	result = chanToSlice(t, done, 0)
-	assert.Equal(t, 0, len(result), "done slice is not empty")
+	assert.Equal(t, 0, len(result), "error slice is not empty")
 }
 
 func TestSenderWithWriteErrorReturnsError(t *testing.T) {
 	t.Parallel()
 	in := make(chan *BufferData, 1)
 
-	data := []byte{0x3, 0x4, 0x5}
+	data := []byte{0x1, 0x2, 0x3}
 	buffer := gopacket.NewSerializeBuffer()
 	err := gopacket.SerializeLayers(buffer, gopacket.SerializeOptions{}, gopacket.Payload(data))
 	require.NoError(t, err)
@@ -137,14 +127,13 @@ func TestSenderWithWriteErrorReturnsError(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	w := NewMockWriter(ctrl)
-	w.EXPECT().WritePacketData(data).Return(errors.New("there was write error"))
-	s := NewPacketSender(w)
+	w.EXPECT().WritePacketData(data).Return(errors.New("write error"))
+	s := NewSender(w)
 
 	done, errc := s.SendPackets(context.Background(), in)
 
 	result := chanToSlice(t, chanErrToGeneric(errc), 1)
 	assert.Equal(t, 1, len(result), "error slice size is invalid")
-	fmt.Println(result)
 	assert.Error(t, result[0].(error))
 
 	result = chanToSlice(t, done, 0)
@@ -156,7 +145,7 @@ func TestSenderWithTimeout(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	w := NewMockWriter(ctrl)
-	s := NewPacketSender(w)
+	s := NewSender(w)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 	defer cancel()
@@ -167,7 +156,6 @@ func TestSenderWithTimeout(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		require.FailNow(t, "exit timeout")
 	}
-
 	result := chanToSlice(t, done, 0)
 	assert.Equal(t, 0, len(result), "error slice is not empty")
 }

@@ -1,4 +1,4 @@
-// easyjson -output_filename scan_result_easyjson.go tcp.go
+//go:generate easyjson -output_filename result_easyjson.go tcp.go
 
 package tcp
 
@@ -147,7 +147,6 @@ func (s *ScanMethod) Results() <-chan scan.Result {
 	return s.results.Chan()
 }
 
-// Porcess Packet Data
 func (s *ScanMethod) ProcessPacketData(data []byte, _ *gopacket.CaptureInfo) (err error) {
 	if err = s.parser.DecodeLayers(data, &s.rcvDecoded); err != nil {
 		return

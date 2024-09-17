@@ -129,8 +129,16 @@ func TestNewRangeIterator(t *testing.T) {
 					}
 				}
 				for i := 1; i <= tt.n; i++ {
-					require.Equal(t, uint(1), bitset.Bit(i),
-						"number %d is not visited, P = %+v G = %+v startI = %+v", i, it.P, it.G, it.startI)
+					require.Equal(
+						t,
+						uint(1),
+						bitset.Bit(i),
+						"number %d is not visited, P = %+v G = %+v startI = %+v",
+						i,
+						it.P,
+						it.G,
+						it.startI,
+					)
 				}
 				require.Equal(t, tt.n, cnt, "count is not valid")
 				require.False(t, it.Next())

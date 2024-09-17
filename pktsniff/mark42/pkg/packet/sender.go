@@ -1,3 +1,5 @@
+//go:generate mockgen -destination=mock_sender_test.go -package=packet -source sender.go
+
 package packet
 
 import (
@@ -6,41 +8,41 @@ import (
 	"github.com/google/gopacket"
 )
 
-// Buffer and Error Store
 type BufferData struct {
 	Buf gopacket.SerializeBuffer
 	Err error
 }
 
 type Sender interface {
-	SendPackets(ctx context.Context, in <-chan *BufferData) (done <-chan interface{}, errchan <-chan error)
+	SendPackets(
+		ctx context.Context,
+		in <-chan *BufferData,
+	) (done <-chan interface{}, errc <-chan error)
 }
 
-// Mock Writer or our actual Writer implements this interface
 type Writer interface {
 	WritePacketData(pkt []byte) error
 }
 
-// PacketSender
-type PacketSender struct {
+func NewSender(w Writer) Sender {
+	return &sender{w}
+}
+
+type sender struct {
 	w Writer
 }
 
-func NewPacketSender(w Writer) Sender {
-	return &PacketSender{w}
-}
-
-// if name before output, then chan is just recieve channel
-func (s *PacketSender) SendPackets(ctx context.Context, in <-chan *BufferData) (<-chan interface{}, <-chan error) {
+func (s *sender) SendPackets(
+	ctx context.Context,
+	in <-chan *BufferData,
+) (<-chan interface{}, <-chan error) {
 	done := make(chan interface{})
-	errchan := make(chan error, 100)
-
+	errc := make(chan error, 100)
 	go func() {
 		defer func() {
 			close(done)
-			close(errchan)
+			close(errc)
 		}()
-
 		for {
 			select {
 			case <-ctx.Done():
@@ -50,18 +52,17 @@ func (s *PacketSender) SendPackets(ctx context.Context, in <-chan *BufferData) (
 					return
 				}
 				if pkt.Err != nil {
-					errchan <- pkt.Err
+					errc <- pkt.Err
 					continue
 				}
 				if err := s.w.WritePacketData(pkt.Buf.Bytes()); err != nil {
-					errchan <- err
+					errc <- err
 				}
 				if err := FreeSerializeBuffer(pkt.Buf); err != nil {
-					errchan <- err
+					errc <- err
 				}
 			}
 		}
 	}()
-
-	return done, errchan
+	return done, errc
 }

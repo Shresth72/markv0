@@ -1,3 +1,5 @@
+//go:generate mockgen -package scan -destination=mock_engine_test.go . PacketSource,Scanner
+
 package scan
 
 import (
@@ -9,7 +11,6 @@ import (
 	"github.com/Shresth72/mark42/pkg/packet"
 )
 
-// Useful for specifying a range of ports to be monitored or filtered. For example, you might use this to indicate which ports a network service should listen on, or to specify which ports are of interest for a network security scan.
 type PortRange struct {
 	StartPort uint16
 	EndPort   uint16
@@ -49,13 +50,13 @@ type PacketSource interface {
 	Packets(ctx context.Context, r *Range) <-chan *packet.BufferData
 }
 
+func NewPacketSource(reqgen RequestGenerator, pktgen PacketGenerator) PacketSource {
+	return &packetSource{reqgen, pktgen}
+}
+
 type packetSource struct {
 	reqgen RequestGenerator
 	pktgen PacketGenerator
-}
-
-func NewPacketSource(reqgen RequestGenerator, pktgen PacketGenerator) PacketSource {
-	return &packetSource{reqgen, pktgen}
 }
 
 func (s *packetSource) Packets(ctx context.Context, r *Range) <-chan *packet.BufferData {
@@ -69,7 +70,6 @@ func (s *packetSource) Packets(ctx context.Context, r *Range) <-chan *packet.Buf
 	return s.pktgen.Packets(ctx, requests)
 }
 
-// Packet Engine
 type PacketEngine struct {
 	src PacketSource
 	snd packet.Sender
@@ -87,6 +87,7 @@ func (e *PacketEngine) Start(ctx context.Context, r *Range) (<-chan interface{},
 	return done, mergeErrChan(ctx, errc1, errc2)
 }
 
+// generics would be helpful :)
 func mergeErrChan(ctx context.Context, channels ...<-chan error) <-chan error {
 	var wg sync.WaitGroup
 	wg.Add(len(channels))
@@ -106,20 +107,16 @@ func mergeErrChan(ctx context.Context, channels ...<-chan error) <-chan error {
 			}
 		}
 	}
-
 	for _, c := range channels {
 		go multiplex(c)
 	}
-
 	go func() {
 		wg.Wait()
 		close(out)
 	}()
-
 	return out
 }
 
-// PacketMethod
 type PacketMethod interface {
 	PacketSource
 	packet.Processor
@@ -127,7 +124,7 @@ type PacketMethod interface {
 }
 
 func SetupPacketEngine(rw packet.ReadWriter, m PacketMethod) EngineResulter {
-	sender := packet.NewPacketSender(rw)
+	sender := packet.NewSender(rw)
 	receiver := packet.NewReceiver(rw, m)
 	engine := NewPacketEngine(m, sender, receiver)
 	return NewEngineResulter(engine, m)
@@ -215,7 +212,8 @@ func (e *GenericEngine) Start(ctx context.Context, r *Range) (<-chan interface{}
 	return done, errc
 }
 
-func (e *GenericEngine) worker(ctx context.Context, wg *sync.WaitGroup, requests <-chan *Request, errc chan<- error) {
+func (e *GenericEngine) worker(ctx context.Context, wg *sync.WaitGroup,
+	requests <-chan *Request, errc chan<- error) {
 	defer wg.Done()
 	for {
 		select {
@@ -229,7 +227,6 @@ func (e *GenericEngine) worker(ctx context.Context, wg *sync.WaitGroup, requests
 				writeError(ctx, errc, r.Err)
 				continue
 			}
-
 			result, err := e.scanner.Scan(ctx, r)
 			if err != nil {
 				writeError(ctx, errc, err)

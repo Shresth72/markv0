@@ -2,12 +2,12 @@ package main
 
 import (
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
 	"syscall"
-  "flag"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -62,11 +62,13 @@ func (rb *ringBuffer) avg() float32 {
 }
 
 func main() {
-  interfaceName := flag.String("interface", "", "Network interface to attach XDP program")
+	interfaceName := flag.String("interface", "", "Network interface to attach XDP program")
 	flag.Parse()
 
 	if *interfaceName == "" {
-		fmt.Println("No interface specified. Use the -interface flag to specify the network interface.")
+		fmt.Println(
+			"No interface specified. Use the -interface flag to specify the network interface.",
+		)
 		os.Exit(1)
 	}
 
@@ -86,7 +88,7 @@ func main() {
 		panic("No program named 'xdp_kern' found in collection")
 	}
 
-  iface_idx, err := net.InterfaceByName(*interfaceName)
+	iface_idx, err := net.InterfaceByName(*interfaceName)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to get interface %s: %v\n", *interfaceName, err))
 	}
@@ -153,7 +155,14 @@ func main() {
 			}
 
 			fmt.Print("\033[H\033[2J")
-			fmt.Printf("total: %d. passed: %d. dropped: %d. passed processing time avg (ns): %f. dropped processing time avg (ns): %f\n", buckets[TYPE_ENTER], buckets[TYPE_PASS], buckets[TYPE_DROP], processingTimePassed.avg(), processingTimeDropped.avg())
+			fmt.Printf(
+				"total: %d. passed: %d. dropped: %d. passed processing time avg (ns): %f. dropped processing time avg (ns): %f\n",
+				buckets[TYPE_ENTER],
+				buckets[TYPE_PASS],
+				buckets[TYPE_DROP],
+				processingTimePassed.avg(),
+				processingTimeDropped.avg(),
+			)
 		}
 	}()
 

@@ -13,13 +13,11 @@ func ParseIPNet(subnet string) (*net.IPNet, error) {
 	if err == nil {
 		return result, err
 	}
-
-	// try to parse host IP address
+	// try to parse host IP address instead
 	ipAddr := net.ParseIP(subnet)
 	if ipAddr == nil {
 		return nil, ErrInvalidAddr
 	}
-
 	return &net.IPNet{IP: ipAddr.To4(), Mask: net.CIDRMask(32, 32)}, nil
 }
 
@@ -28,14 +26,15 @@ func GetInterfaceIP(iface *net.Interface) (ifaceIP net.IP, err error) {
 	if addrs, err = iface.Addrs(); err != nil || len(addrs) == 0 {
 		return
 	}
-
 	if ipnet, ok := addrs[0].(*net.IPNet); ok {
 		return ipnet.IP, nil
 	}
 	return nil, fmt.Errorf("invalid IP address: %v", addrs[0])
 }
 
-func GetLocalSubnetInterface(dstSubnet *net.IPNet) (iface *net.Interface, ifaceIP net.IP, err error) {
+func GetLocalSubnetInterface(
+	dstSubnet *net.IPNet,
+) (iface *net.Interface, ifaceIP net.IP, err error) {
 	var ifaces []net.Interface
 	if ifaces, err = net.Interfaces(); err != nil {
 		return

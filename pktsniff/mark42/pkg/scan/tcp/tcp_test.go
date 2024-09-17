@@ -3,10 +3,12 @@ package tcp
 import (
 	"context"
 	"net"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/Shresth72/mark42/pkg/scan"
+	"github.com/Shresth72/mark42/pkg/scan/arp"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/stretchr/testify/assert"
@@ -91,7 +93,11 @@ func TestPacketFillerEthernet(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			resultPacket := gopacket.NewPacket(packet.Bytes(), layers.LayerTypeEthernet, gopacket.Default)
+			resultPacket := gopacket.NewPacket(
+				packet.Bytes(),
+				layers.LayerTypeEthernet,
+				gopacket.Default,
+			)
 
 			ethLayer := resultPacket.Layer(layers.LayerTypeEthernet)
 			require.NotNil(t, ethLayer, "ethernet layer is empty")
@@ -203,7 +209,11 @@ func TestPacketFillerIPv4(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			resultPacket := gopacket.NewPacket(packet.Bytes(), layers.LayerTypeIPv4, gopacket.Default)
+			resultPacket := gopacket.NewPacket(
+				packet.Bytes(),
+				layers.LayerTypeIPv4,
+				gopacket.Default,
+			)
 
 			ethLayer := resultPacket.Layer(layers.LayerTypeEthernet)
 			require.Nil(t, ethLayer, "ethernet layer is not empty")
@@ -477,45 +487,47 @@ func (*nullPacketReadWriter) WritePacketData(_ []byte) error {
 	return nil
 }
 
-// func BenchmarkTCPScanEngine(b *testing.B) {
-// 	b.ReportAllocs()
-// 	ctx, cancel := context.WithCancel(context.Background())
-// 	defer cancel()
-//
-// 	dstIP := net.IPv4(192, 168, 0, 3).To4()
-// 	ipgen := mockIPGeneratorFunc(func(ctx context.Context, r *scan.Range) (<-chan scan.IPGetter, error) {
-// 		out := make(chan scan.IPGetter, 100)
-// 		go func() {
-// 			defer close(out)
-// 			for i := 0; i < b.N; i++ {
-// 				select {
-// 				case <-ctx.Done():
-// 					return
-// 				case out <- scan.WrapIP(dstIP):
-// 				}
-// 			}
-// 		}()
-// 		return out, nil
-// 	})
-// 	reqgen := arp.NewCacheRequestGenerator(
-// 		scan.NewIPPortGenerator(ipgen, scan.NewPortGenerator()),
-// 		net.HardwareAddr{0x10, 0x11, 0x12, 0x13, 0x14, 0x15},
-// 		arp.NewCache())
-// 	pktgen := scan.NewPacketMultiGenerator(NewPacketFiller(), runtime.NumCPU())
-// 	psrc := scan.NewPacketSource(reqgen, pktgen)
-// 	results := scan.NewResultChan(ctx, 1000)
-// 	sm := NewScanMethod("tcpbench", psrc, results)
-// 	engine := scan.SetupPacketEngine(&nullPacketReadWriter{}, sm)
-//
-// 	done, _ := engine.Start(ctx, &scan.Range{
-// 		SrcIP:  net.IPv4(192, 168, 0, 2).To4(),
-// 		SrcMAC: net.HardwareAddr{0x1, 0x2, 0x3, 0x4, 0x5, 0x6},
-// 		Ports: []*scan.PortRange{
-// 			{
-// 				StartPort: 22,
-// 				EndPort:   22,
-// 			},
-// 		},
-// 	})
-// 	<-done
-// }
+func BenchmarkTCPScanEngine(b *testing.B) {
+	b.ReportAllocs()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dstIP := net.IPv4(192, 168, 0, 3).To4()
+	ipgen := mockIPGeneratorFunc(
+		func(ctx context.Context, r *scan.Range) (<-chan scan.IPGetter, error) {
+			out := make(chan scan.IPGetter, 100)
+			go func() {
+				defer close(out)
+				for i := 0; i < b.N; i++ {
+					select {
+					case <-ctx.Done():
+						return
+					case out <- scan.WrapIP(dstIP):
+					}
+				}
+			}()
+			return out, nil
+		},
+	)
+	reqgen := arp.NewCacheRequestGenerator(
+		scan.NewIPPortGenerator(ipgen, scan.NewPortGenerator()),
+		net.HardwareAddr{0x10, 0x11, 0x12, 0x13, 0x14, 0x15},
+		arp.NewCache())
+	pktgen := scan.NewPacketMultiGenerator(NewPacketFiller(), runtime.NumCPU())
+	psrc := scan.NewPacketSource(reqgen, pktgen)
+	results := scan.NewResultChan(ctx, 1000)
+	sm := NewScanMethod("tcpbench", psrc, results)
+	engine := scan.SetupPacketEngine(&nullPacketReadWriter{}, sm)
+
+	done, _ := engine.Start(ctx, &scan.Range{
+		SrcIP:  net.IPv4(192, 168, 0, 2).To4(),
+		SrcMAC: net.HardwareAddr{0x1, 0x2, 0x3, 0x4, 0x5, 0x6},
+		Ports: []*scan.PortRange{
+			{
+				StartPort: 22,
+				EndPort:   22,
+			},
+		},
+	})
+	<-done
+}

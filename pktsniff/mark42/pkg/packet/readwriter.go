@@ -7,9 +7,8 @@ type ReadWriter interface {
 	Writer
 }
 
-// Rate Limit
 type Limiter interface {
-	// Take should block to make sure that the RPS is met
+	// Take should block to make sure that the RPS is met.
 	Take() time.Time
 }
 

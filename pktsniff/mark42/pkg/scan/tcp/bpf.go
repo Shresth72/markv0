@@ -18,7 +18,6 @@ func BPFFilter(r *scan.Range) (filter string, maxPacketLength int) {
 		sb.WriteString(" and ip src net ")
 		sb.WriteString(r.DstSubnet.String())
 	}
-
 	if len(r.Ports) > 0 {
 		sb.WriteString(" and (")
 		var ranges []string
@@ -28,7 +27,6 @@ func BPFFilter(r *scan.Range) (filter string, maxPacketLength int) {
 		sb.WriteString(strings.Join(ranges, " or "))
 		sb.WriteRune(')')
 	}
-
 	return sb.String(), MaxPacketLength
 }
 
