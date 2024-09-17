@@ -13,9 +13,8 @@ struct datarec {
   __u64 rx_bytes;
 };
 
-struct event_data {
+struct telrec {
   __u64 timestamp;
-  __u32 action;
   __u64 processing_time;
 };
 
@@ -31,6 +30,13 @@ struct {
 } xdp_stats_map SEC(".maps");
 
 struct {
+  __uint(type, BPF_MAP_TYPE_ARRAY);
+  __type(key, __u32);
+  __type(value, struct telrec);
+  __uint(max_entries, XDP_ACTION_MAX);
+} telemetry_stats_map SEC(".maps");
+
+struct {
   __uint(type, BPF_MAP_TYPE_DEVMAP);
   __type(key, __u32);
   __type(value, __u32);
@@ -43,12 +49,6 @@ struct {
   __type(value, unsigned char[ETH_ALEN]);
   __uint(max_entries, 1);
 } redirect_params SEC(".maps");
-
-// Perf event array for sending events to user space
-struct {
-  __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
-  __uint(max_entries, 0);
-} events SEC(".maps");
 
 static __always_inline __u32 xdp_stats_record_action(struct xdp_md *ctx,
                                                      __u32 action,
@@ -64,14 +64,12 @@ static __always_inline __u32 xdp_stats_record_action(struct xdp_md *ctx,
   rec->rx_packets++;
   rec->rx_bytes += (ctx->data_end - ctx->data);
 
-  // Prepare event data for perf event output
-  struct event_data event = {};
-  event.timestamp = bpf_ktime_get_ns();
-  event.processing_time = event.timestamp - start;
-  event.action = action;
+  struct telrec *telemetry = bpf_map_lookup_elem(&telemetry_stats_map, &action);
+  if (!telemetry)
+    return XDP_ABORTED;
 
-  // Send event data to user space
-  bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
+  telemetry->timestamp = bpf_ktime_get_ns();
+  telemetry->processing_time = telemetry->timestamp - start;
 
   return action;
 }
