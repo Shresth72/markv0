@@ -63,7 +63,7 @@ int xdp_redirect_map_func(struct xdp_md *ctx) {
 
   memcpy(eth->h_dest, dst, ETH_ALEN);
 
-  // Use appropriate key (TODO: test)
+  // Use appropriate key (TODO: test this)
   iface_index = bpf_map_lookup_elem(&tx_port, 0);
   if (!iface_index)
     goto out;
