@@ -110,7 +110,7 @@ static __always_inline int parse_ethhdr_vlan(struct hdr_cursor *nh,
     if (!proto_is_vlan(h_proto))
       break;
 
-    if (vlh + 1 > data_end)
+    if ((void *)vlh + 1 > data_end)
       break;
 
     h_proto = vlh->h_vlan_encapsulated_proto;
@@ -138,7 +138,7 @@ static __always_inline int parse_ip6hdr(struct hdr_cursor *nh, void *data_end,
    * thing being pointed to. We will be using this style in the remainder
    * of the tutorial.
    */
-  if (ip6h + 1 > data_end)
+  if ((void *)ip6h + 1 > data_end)
     return -1;
 
   nh->pos = ip6h + 1;
@@ -152,7 +152,7 @@ static __always_inline int parse_iphdr(struct hdr_cursor *nh, void *data_end,
   struct iphdr *iph = nh->pos;
   int hdrsize;
 
-  if (iph + 1 > data_end)
+  if ((void *)iph + 1 > data_end)
     return -1;
 
   hdrsize = iph->ihl * 4;
@@ -174,7 +174,7 @@ static __always_inline int parse_icmp6hdr(struct hdr_cursor *nh, void *data_end,
                                           struct icmp6hdr **icmp6hdr) {
   struct icmp6hdr *icmp6h = nh->pos;
 
-  if (icmp6h + 1 > data_end)
+  if ((void *)icmp6h + 1 > data_end)
     return -1;
 
   nh->pos = icmp6h + 1;
@@ -187,7 +187,7 @@ static __always_inline int parse_icmphdr(struct hdr_cursor *nh, void *data_end,
                                          struct icmphdr **icmphdr) {
   struct icmphdr *icmph = nh->pos;
 
-  if (icmph + 1 > data_end)
+  if ((void *)icmph + 1 > data_end)
     return -1;
 
   nh->pos = icmph + 1;
@@ -201,7 +201,7 @@ parse_icmphdr_common(struct hdr_cursor *nh, void *data_end,
                      struct icmphdr_common **icmphdr) {
   struct icmphdr_common *h = nh->pos;
 
-  if (h + 1 > data_end)
+  if ((void *)h + 1 > data_end)
     return -1;
 
   nh->pos = h + 1;
@@ -218,7 +218,7 @@ static __always_inline int parse_udphdr(struct hdr_cursor *nh, void *data_end,
   int len;
   struct udphdr *h = nh->pos;
 
-  if (h + 1 > data_end)
+  if ((void *)h + 1 > data_end)
     return -1;
 
   nh->pos = h + 1;
@@ -239,7 +239,7 @@ static __always_inline int parse_tcphdr(struct hdr_cursor *nh, void *data_end,
   int len;
   struct tcphdr *h = nh->pos;
 
-  if (h + 1 > data_end)
+  if ((void *)h + 1 > data_end)
     return -1;
 
   len = h->doff * 4;

@@ -7,13 +7,28 @@
 #include <bpf/bpf_helpers.h>
 
 #include "../../common_user.h"
-#include "../../parsers.h"
 
-#include "../../common.h"
+struct datarec {
+  __u64 rx_packets;
+  __u64 rx_bytes;
+};
 
-#ifndef memcpy
-#define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
-#endif /* memcpy */
+struct event_data {
+  __u64 timestamp;
+  __u32 action;
+  __u64 processing_time;
+};
+
+#ifndef XDP_ACTION_MAX
+#define XDP_ACTION_MAX (XDP_REDIRECT + 1)
+#endif // !XDP_ACTION_MAX
+
+struct {
+  __uint(type, BPF_MAP_TYPE_ARRAY);
+  __type(key, __u32);
+  __type(value, struct datarec);
+  __uint(max_entries, XDP_ACTION_MAX);
+} xdp_stats_map SEC(".maps");
 
 struct {
   __uint(type, BPF_MAP_TYPE_DEVMAP);
@@ -29,48 +44,70 @@ struct {
   __uint(max_entries, 1);
 } redirect_params SEC(".maps");
 
-SEC("xdp")
-int xdp_get_iface_index(struct __sk_buff *skb) {
-  __u32 key = 0;
-  __u32 *tx_port_index = bpf_map_lookup_elem(&tx_port, &key);
-  if (!tx_port_index) {
-    return XDP_DROP;
-  }
-  return bpf_redirect_map(&tx_port, *tx_port_index, 0);
+// Perf event array for sending events to user space
+struct {
+  __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
+  __uint(max_entries, 0);
+} events SEC(".maps");
+
+static __always_inline __u32 xdp_stats_record_action(struct xdp_md *ctx,
+                                                     __u32 action,
+                                                     __u64 start) {
+  if (action >= XDP_ACTION_MAX)
+    return XDP_ABORTED;
+
+  struct datarec *rec = bpf_map_lookup_elem(&xdp_stats_map, &action);
+  if (!rec)
+    return XDP_ABORTED;
+
+  // Update statistics
+  rec->rx_packets++;
+  rec->rx_bytes += (ctx->data_end - ctx->data);
+
+  // Prepare event data for perf event output
+  struct event_data event = {};
+  event.timestamp = bpf_ktime_get_ns();
+  event.processing_time = event.timestamp - start;
+  event.action = action;
+
+  // Send event data to user space
+  bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &event, sizeof(event));
+
+  return action;
 }
 
 SEC("xdp_redirect_map")
 int xdp_redirect_map_func(struct xdp_md *ctx) {
+  __u64 start = bpf_ktime_get_ns();
+
   void *data_end = (void *)(long)ctx->data_end;
   void *data = (void *)(long)ctx->data;
 
-  struct hdr_cursor nh;
   struct ethhdr *eth;
-  __u32 eth_type;
   __u32 action = XDP_PASS;
+  __u32 key = 0;
 
-  unsigned char *dst;
-  __u32 *iface_index;
+  // Boundary check
+  if (data + sizeof(struct ethhdr) > data_end)
+    return XDP_DROP;
 
-  nh.pos = data;
-  eth_type = parse_ethhdr(&nh, data_end, &eth);
-  if (eth_type < -1)
-    goto out;
+  eth = data;
 
-  dst = bpf_map_lookup_elem(&redirect_params, eth->h_source);
+  unsigned char *dst = bpf_map_lookup_elem(&redirect_params, eth->h_source);
   if (!dst)
     goto out;
 
-  memcpy(eth->h_dest, dst, ETH_ALEN);
+  // Copy destination MAC
+  __builtin_memcpy(eth->h_dest, dst, ETH_ALEN);
 
-  // Use appropriate key (TODO: test this)
-  iface_index = bpf_map_lookup_elem(&tx_port, 0);
+  __u32 *iface_index = bpf_map_lookup_elem(&tx_port, &key);
   if (!iface_index)
     goto out;
 
-  // tx_port should populated by the user_space
   action = bpf_redirect_map(&tx_port, *iface_index, 0);
 
 out:
-  return xdp_stats_record_action(ctx, action);
+  return xdp_stats_record_action(ctx, action, start);
 }
+
+char _license[] SEC("license") = "GPL";
