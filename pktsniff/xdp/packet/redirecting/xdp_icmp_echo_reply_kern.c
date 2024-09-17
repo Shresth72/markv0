@@ -1,0 +1,85 @@
+#include <linux/bpf.h>
+#include <linux/icmpv6.h>
+#include <linux/if_ether.h>
+#include <linux/in.h>
+
+#include <bpf/bpf_endian.h>
+#include <bpf/bpf_helpers.h>
+
+#include "../../common_user.h"
+#include "../../parsers.h"
+#include "../../swap.h"
+
+#include "../../common.h"
+
+// Send back ICMP_ECHOREPLY when icmp received
+SEC("xdp")
+int xdp_icmp_echo_func(struct xdp_md *ctx) {
+  void *data_end = (void *)(long)ctx->data_end;
+  void *data = (void *)(long)ctx->data;
+
+  struct hdr_cursor nh;
+  struct ethhdr *eth;
+
+  int eth_type;
+  int ip_type;
+  int icmp_type;
+
+  struct iphdr *iphdr;
+  struct ipv6hdr *ipv6hdr;
+
+  __u16 echo_reply;
+  __u16 old_csum;
+
+  struct icmphdr_common *icmphdr;
+  struct icmphdr_common *icmphdr_old;
+
+  __u32 action = XDP_PASS;
+
+  nh.pos = data;
+
+  // Parse Ethernet and IP/IPv6 headers
+  eth_type = parse_ethhdr(&nh, data_end, &eth);
+  if (eth_type < 0) {
+    action = XDP_ABORTED;
+    goto out;
+  }
+
+  if (eth_type == bpf_htons(ETH_P_IP)) {
+    ip_type = parse_iphdr(&nh, data_end, &iphdr);
+    if (ip_type != IPPROTO_ICMP)
+      goto out;
+  } else if (eth_type == bpf_htons(ETH_P_IPV6)) {
+    ip_type = parse_ip6hdr(&nh, data_end, &ipv6hdr);
+    if (ip_type != IPPROTO_ICMPV6)
+      goto out;
+  } else {
+    goto out;
+  }
+
+  // Parser returns struct containing 'protocol-independent' part of
+  // and ICMP or ICMPv6 header
+  icmp_type = parse_icmphdr_common(&nh, data_end, &icmphdr);
+  if (eth_type == bpf_htons(ETH_P_IP) && icmp_type == ICMP_ECHO) {
+    swap_src_dst_ipv4(iphdr);
+    echo_reply = ICMP_ECHOREPLY;
+  } else if (eth_type == bpf_htons(ETH_P_IPV6) &&
+             icmp_type == ICMPV6_ECHO_REQUEST) {
+    swap_src_dst_ipv6(ipv6hdr);
+    echo_reply = ICMPV6_ECHO_REPLY;
+  } else {
+    goto out;
+  }
+
+  // Swap Ethernet source and destination
+  swap_src_dst_mac(eth);
+
+  // TODO: Patch the packet and udpate the checksum.
+  // TODO: Send back the echo_reply
+
+  bpf_printk("echo_reply: %d", echo_reply);
+  action = XDP_TX;
+
+out:
+  return xdp_stats_record_action(ctx, action);
+}

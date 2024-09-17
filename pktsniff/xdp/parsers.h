@@ -46,6 +46,13 @@ struct vlan_hdr {
 /*
  * Struct icmphdr_common represents the common part of the icmphdr and icmp6hdr
  * structures.
+
+ * struct icmphdr_common {
+ *
+ *   __u8 type;
+ *   __u8 code;
+ *   __sum16 cksum;
+ * };
  */
 struct icmphdr_common {
   __u8 type;
