@@ -12,6 +12,29 @@
 
 #include "../../common.h"
 
+static __always_inline __u16 csum_fold_helper(__u32 csum) {
+  __u32 sum;
+  sum = (csum >> 16) + (csum & 0xffff);
+  sum += (sum >> 16);
+  return ~sum;
+}
+
+static __always_inline __u16
+icmp_checksum_diff(__u16 seed, struct icmphdr_common *icmphdr_new,
+                   struct icmphdr_common *icmphdr_old) {
+  __u32 csum, size = sizeof(struct icmphdr_common);
+
+  // Update checksum
+  // Calculates difference bw the old and new header over the size bytes
+  // includes the dest port
+  // seed: helps adject the checksum correctly (bitwise neg of original csum)
+
+  csum = bpf_csum_diff((__be32 *)icmphdr_old, size, (__be32 *)icmphdr_new, size,
+                       seed);
+
+  return csum_fold_helper(csum);
+}
+
 // Send back ICMP_ECHOREPLY when icmp received
 SEC("xdp")
 int xdp_icmp_echo_func(struct xdp_md *ctx) {
@@ -32,7 +55,7 @@ int xdp_icmp_echo_func(struct xdp_md *ctx) {
   __u16 old_csum;
 
   struct icmphdr_common *icmphdr;
-  struct icmphdr_common *icmphdr_old;
+  struct icmphdr_common icmphdr_old;
 
   __u32 action = XDP_PASS;
 
@@ -74,7 +97,13 @@ int xdp_icmp_echo_func(struct xdp_md *ctx) {
   // Swap Ethernet source and destination
   swap_src_dst_mac(eth);
 
-  // TODO: Patch the packet and udpate the checksum.
+  // Patch the packet and udpate the checksum.
+  old_csum = icmphdr->cksum;
+  icmphdr->cksum = 0;
+  icmphdr_old = *icmphdr;
+  icmphdr->type = echo_reply;
+  icmphdr->cksum = icmp_checksum_diff(~old_csum, icmphdr, &icmphdr_old);
+
   // TODO: Send back the echo_reply
 
   bpf_printk("echo_reply: %d", echo_reply);
