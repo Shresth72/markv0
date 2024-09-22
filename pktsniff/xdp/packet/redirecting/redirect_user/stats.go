@@ -8,7 +8,6 @@ import (
 )
 
 func collectStats(xdpStatsMap *ebpf.Map) {
-	// Map action type to human-readable action names
 	actionNames := map[int]string{
 		0: "XDP_ABORTED  ",
 		1: "XDP_DROP     ",
@@ -26,7 +25,6 @@ func collectStats(xdpStatsMap *ebpf.Map) {
 				continue
 			}
 
-			// Get action name, default to "UNKNOWN" if not found
 			actionName, ok := actionNames[i]
 			if !ok {
 				actionName = "UNKNOWN"
@@ -54,11 +52,8 @@ func collectTelemetryStats(telemetryStatsMap *ebpf.Map) {
 				continue
 			}
 
-			// Print only if timestamp is not zero
 			if tel.Timestamp != 0 {
-				// Assuming timestamp is in nanoseconds since Unix epoch
 				timestamp := time.Unix(0, int64(tel.Timestamp))
-				// Format timestamp
 				_ = timestamp.Format("2006-01-02 15:04:05.999999999")
 				date := timestamp.Format("2006-01-02")
 				timePart := timestamp.Format("15:04:05.999999999")
