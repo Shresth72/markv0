@@ -156,8 +156,7 @@ func main() {
 	fmt.Println("Successfully loaded and attached BPF program and populated maps")
 
 	// Periodically collect stats from xdpStatsMap and telemetryStatsMap
-	go collectStats(xdpStatsMap)
-	go collectTelemetryStats(telemetryStatsMap)
+	go collectStats(xdpStatsMap, telemetryStatsMap)
 
 	// Signal handling
 	c := make(chan os.Signal, 1)

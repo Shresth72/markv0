@@ -1,23 +1,40 @@
 package main
 
 import (
+	"encoding/csv"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/cilium/ebpf"
 )
 
-func collectStats(xdpStatsMap *ebpf.Map) {
-	actionNames := map[int]string{
-		0: "XDP_ABORTED  ",
-		1: "XDP_DROP     ",
-		2: "XDP_PASS     ",
-		3: "XDP_TX       ",
-		4: "XDP_REDIRECT ",
+var droppedPackets, passedPackets []int64
+var processingTimes []uint64
+
+func collectStats(xdpStatsMap *ebpf.Map, telemetryStatsMap *ebpf.Map) {
+	startTime := time.Now()
+
+	// Create or open the CSV file
+	file, err := os.Create("stats.csv")
+	if err != nil {
+		fmt.Printf("Failed to create CSV file: %v\n", err)
+		return
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	// Write header
+	if err := writer.Write([]string{"Time", "Dropped", "Passed", "ProcessingTime"}); err != nil {
+		fmt.Printf("Failed to write header to CSV: %v\n", err)
+		return
 	}
 
 	for {
-		fmt.Println("Collecting stats from xdpStatsMap:")
+		var dropped, passed int64
+
 		for i := 0; i < 5; i++ {
 			var stats datarec
 			if err := xdpStatsMap.Lookup(uint32(i), &stats); err != nil {
@@ -25,26 +42,17 @@ func collectStats(xdpStatsMap *ebpf.Map) {
 				continue
 			}
 
-			actionName, ok := actionNames[i]
-			if !ok {
-				actionName = "UNKNOWN"
+			if i == 1 { // XDP_DROP
+				dropped += int64(stats.RxPackets)
+			} else if i == 2 { // XDP_PASS
+				passed += int64(stats.RxPackets)
 			}
-
-			fmt.Printf(
-				"Action %s: Packets: %d, Bytes: %d\n",
-				actionName,
-				stats.RxPackets,
-				stats.RxBytes,
-			)
 		}
-		fmt.Println()
-		time.Sleep(2 * time.Second) // Poll every 2 seconds
-	}
-}
 
-func collectTelemetryStats(telemetryStatsMap *ebpf.Map) {
-	for {
-		fmt.Println("Collecting telemetry stats from telemetryStatsMap:")
+		droppedPackets = append(droppedPackets, dropped)
+		passedPackets = append(passedPackets, passed)
+
+		// Collect processing times from telemetryStatsMap
 		for i := 0; i < 5; i++ {
 			var tel telrec
 			if err := telemetryStatsMap.Lookup(uint32(i), &tel); err != nil {
@@ -53,20 +61,39 @@ func collectTelemetryStats(telemetryStatsMap *ebpf.Map) {
 			}
 
 			if tel.Timestamp != 0 {
-				timestamp := time.Unix(0, int64(tel.Timestamp))
-				_ = timestamp.Format("2006-01-02 15:04:05.999999999")
-				date := timestamp.Format("2006-01-02")
-				timePart := timestamp.Format("15:04:05.999999999")
-
-				fmt.Printf(
-					"Date: %s, Time: %s, Processing Time: %d nanos\n",
-					date,
-					timePart,
-					tel.ProcessingTime,
-				)
+				processingTimes = append(processingTimes, tel.ProcessingTime)
 			}
 		}
-		fmt.Println()
+
+		elapsed := time.Since(startTime).Seconds()
+		processingTime := int64(0) // Default value
+
+		if len(processingTimes) > 0 {
+			processingTime = int64(processingTimes[len(processingTimes)-1])
+		}
+
+		record := []string{
+			fmt.Sprintf("%.2f", elapsed),
+			fmt.Sprintf("%d", dropped),
+			fmt.Sprintf("%d", passed),
+			fmt.Sprintf("%d", processingTime),
+		}
+
+		if err := writer.Write(record); err != nil {
+			fmt.Printf("Failed to write record to CSV: %v\n", err)
+			return
+		}
+
+		fmt.Printf(
+			"Elapsed: %.2f, Dropped: %d, Passed: %d, ProcessingTime: %d\n",
+			elapsed,
+			dropped,
+			passed,
+			processingTime,
+		)
+
+		writer.Flush() // Flush after each write
+
 		time.Sleep(2 * time.Second) // Poll every 2 seconds
 	}
 }
