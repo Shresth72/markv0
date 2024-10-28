@@ -5,7 +5,7 @@
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 
-#include "../../../../common_user.h"
+#include "../../clib/common_user.h"
 
 #ifndef XDP_ACTION_MAX
 #define XDP_ACTION_MAX (XDP_REDIRECT + 1)
@@ -16,10 +16,8 @@
 
 #define RED_MIN_THRESH 1000 // Minimum threshold for queue length
 #define RED_MAX_THRESH 5000 // Maximum threshold for queue length
-#define DROP_PROB_MAX 100   // Maximum drop probability
-
-#define BURST_RPS_THRESH 200       // Requests per second threshold
-#define BURST_RESET_QUEUE_LEN 3000 // Queue length when burst is detected
+#define RED_WEIGHT 0.002    // Weight for average queue length
+#define DROP_PROB_MAX 100
 
 struct datarec {
   __u64 rx_packets;
@@ -62,10 +60,12 @@ struct {
 struct {
   __uint(type, BPF_MAP_TYPE_ARRAY);
   __type(key, __u32);
-  __type(value, __u64); // Store average queue length
+  __type(value, __u64); // Store average queue length as u64
   __uint(max_entries, 1);
 } queue_avg_map SEC(".maps");
 
+// Function to calculate the weighted average queue length in fixed-point
+// arithmetic
 static __always_inline __u64 calculate_avg_queue_len(__u64 prev_avg,
                                                      __u64 curr_queue_len) {
   // avg_scaled = ((SCALE_FACTOR - W_SCALED) * prev_avg + W_SCALED *
@@ -73,34 +73,6 @@ static __always_inline __u64 calculate_avg_queue_len(__u64 prev_avg,
   __u64 weighted_prev_avg = (SCALE_FACTOR - W_SCALED) * prev_avg;
   __u64 weighted_curr_len = W_SCALED * curr_queue_len;
   return (weighted_prev_avg + weighted_curr_len) / SCALE_FACTOR;
-}
-
-static __always_inline void handle_burst_detection(__u32 action) {
-  struct datarec *stats = bpf_map_lookup_elem(&xdp_stats_map, &action);
-  struct telrec *telemetry = bpf_map_lookup_elem(&telemetry_stats_map, &action);
-  __u64 *initial_queue_len = bpf_map_lookup_elem(&queue_avg_map, &(__u32){0});
-
-  if (!stats || !telemetry || !initial_queue_len)
-    return;
-
-  __u64 delta_time = telemetry->processing_time;
-
-  // Avoid division by zero
-  if (delta_time > 0) {
-    __u64 rps = stats->rx_packets * 1000000000 /
-                delta_time; // Convert to requests per second
-
-    // If RPS exceeds the initial queue length, treat it as bursty traffic and
-    // reset the queue size
-    if (rps > *initial_queue_len) {
-      // Reset the queue length for burst handling
-      __u32 key = 0;
-      __u64 *queue_len = bpf_map_lookup_elem(&queue_avg_map, &key);
-      if (queue_len) {
-        *queue_len = BURST_RESET_QUEUE_LEN; // Reset queue length
-      }
-    }
-  }
 }
 
 static __always_inline __u32 xdp_stats_record_action(struct xdp_md *ctx,
@@ -144,8 +116,6 @@ int xdp_redirect_map_func(struct xdp_md *ctx) {
     action = XDP_DROP;
     goto out;
   }
-
-  handle_burst_detection(action);
 
   __u64 new_avg = calculate_avg_queue_len(*prev_avg, queue_len);
   bpf_map_update_elem(&queue_avg_map, &key, &new_avg, BPF_ANY);

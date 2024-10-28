@@ -5,7 +5,7 @@
 #include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 
-#include "../../../../common_user.h"
+#include "../../clib/common_user.h"
 
 #ifndef XDP_ACTION_MAX
 #define XDP_ACTION_MAX (XDP_REDIRECT + 1)
@@ -18,8 +18,8 @@
 #define RED_MAX_THRESH 5000 // Maximum threshold for queue length
 #define DROP_PROB_MAX 100   // Maximum drop probability
 
-#define BURST_RPS_THRESH 200       // Requests per second threshold
-#define BURST_RESET_QUEUE_LEN 3000 // Queue length when burst is detected
+#define BURST_RPS_THRESH 150       // Threshold for RPS burst detection
+#define BURST_RESET_QUEUE_LEN 3000 // Queue length reset during burst
 
 struct datarec {
   __u64 rx_packets;
@@ -29,6 +29,8 @@ struct datarec {
 struct telrec {
   __u64 timestamp;
   __u64 processing_time;
+  __u64 last_rx_packets; // New field for last recorded packets
+  __u64 last_timestamp;  // New field for last timestamp
 };
 
 struct {
@@ -66,43 +68,46 @@ struct {
   __uint(max_entries, 1);
 } queue_avg_map SEC(".maps");
 
+// Average queue length calculation
 static __always_inline __u64 calculate_avg_queue_len(__u64 prev_avg,
                                                      __u64 curr_queue_len) {
-  // avg_scaled = ((SCALE_FACTOR - W_SCALED) * prev_avg + W_SCALED *
-  // curr_queue_len) / SCALE_FACTOR;
   __u64 weighted_prev_avg = (SCALE_FACTOR - W_SCALED) * prev_avg;
   __u64 weighted_curr_len = W_SCALED * curr_queue_len;
   return (weighted_prev_avg + weighted_curr_len) / SCALE_FACTOR;
 }
 
+// Burst detection based on RPS
 static __always_inline void handle_burst_detection(__u32 action) {
   struct datarec *stats = bpf_map_lookup_elem(&xdp_stats_map, &action);
   struct telrec *telemetry = bpf_map_lookup_elem(&telemetry_stats_map, &action);
-  __u64 *initial_queue_len = bpf_map_lookup_elem(&queue_avg_map, &(__u32){0});
+  __u64 *queue_len = bpf_map_lookup_elem(&queue_avg_map, &(__u32){0});
 
-  if (!stats || !telemetry || !initial_queue_len)
+  if (!stats || !telemetry || !queue_len)
     return;
 
-  __u64 delta_time = telemetry->processing_time;
+  // Calculate RPS using current and last recorded packets/timestamp
+  __u64 current_time = bpf_ktime_get_ns();
+  if (telemetry->last_timestamp > 0) { // Ensure it's not the first iteration
+    __u64 time_diff = current_time - telemetry->last_timestamp;
+    __u64 packet_diff = stats->rx_packets - telemetry->last_rx_packets;
 
-  // Avoid division by zero
-  if (delta_time > 0) {
-    __u64 rps = stats->rx_packets * 1000000000 /
-                delta_time; // Convert to requests per second
+    // Calculate RPS if time_diff is positive to avoid division by zero
+    if (time_diff > 0) {
+      __u64 rps = packet_diff / time_diff;
 
-    // If RPS exceeds the initial queue length, treat it as bursty traffic and
-    // reset the queue size
-    if (rps > *initial_queue_len) {
-      // Reset the queue length for burst handling
-      __u32 key = 0;
-      __u64 *queue_len = bpf_map_lookup_elem(&queue_avg_map, &key);
-      if (queue_len) {
-        *queue_len = BURST_RESET_QUEUE_LEN; // Reset queue length
+      // Burst condition based on RPS threshold
+      if (rps > BURST_RPS_THRESH) {
+        *queue_len = BURST_RESET_QUEUE_LEN; // Reset queue length during burst
       }
     }
   }
+
+  // Update telemetry with current stats for next calculation
+  telemetry->last_rx_packets = stats->rx_packets;
+  telemetry->last_timestamp = current_time;
 }
 
+// Record action stats
 static __always_inline __u32 xdp_stats_record_action(struct xdp_md *ctx,
                                                      __u32 action,
                                                      __u64 start) {
@@ -113,7 +118,7 @@ static __always_inline __u32 xdp_stats_record_action(struct xdp_md *ctx,
   if (!rec)
     return XDP_ABORTED;
 
-  // Update statistics
+  // Update packet and byte counters
   rec->rx_packets++;
   rec->rx_bytes += (ctx->data_end - ctx->data);
 
@@ -127,59 +132,59 @@ static __always_inline __u32 xdp_stats_record_action(struct xdp_md *ctx,
   return action;
 }
 
+// Main XDP program
 SEC("xdp_redirect_map")
 int xdp_redirect_map_func(struct xdp_md *ctx) {
   __u64 start = bpf_ktime_get_ns();
-
   void *data_end = (void *)(long)ctx->data_end;
   void *data = (void *)(long)ctx->data;
 
   struct ethhdr *eth;
   __u32 action = XDP_PASS;
-  __u64 queue_len = 50;
+  __u64 queue_len = 50; // Default queue length if dynamic source is unavailable
   __u32 key = 0;
 
+  // Retrieve and update average queue length
   __u64 *prev_avg = bpf_map_lookup_elem(&queue_avg_map, &key);
   if (!prev_avg) {
     action = XDP_DROP;
     goto out;
   }
 
+  // Burst detection and queue reset if necessary
   handle_burst_detection(action);
 
+  // Update average queue length
   __u64 new_avg = calculate_avg_queue_len(*prev_avg, queue_len);
   bpf_map_update_elem(&queue_avg_map, &key, &new_avg, BPF_ANY);
 
+  // Random Early Detection (RED) for queue management
   if (new_avg >= RED_MAX_THRESH) {
-    action = XDP_DROP; // Drop the packet if avg >= max threshold
-    goto out;
+    action = XDP_DROP;
   } else if (new_avg <= RED_MIN_THRESH) {
-    action = XDP_PASS; // Pass the packet if avg <= min threshold
+    action = XDP_PASS;
   } else {
-    // Calculate drop probability (for avg between min and max)
     __u64 drop_prob = (new_avg - RED_MIN_THRESH) * DROP_PROB_MAX /
                       (RED_MAX_THRESH - RED_MIN_THRESH);
-
-    // Randomly drop the packet based on the calculated probability
     if (bpf_get_prandom_u32() % 100 < drop_prob) {
       action = XDP_DROP;
-      goto out;
     }
   }
 
-  // Boundary check
+  // Check packet length for valid Ethernet header
   if (data + sizeof(struct ethhdr) > data_end)
     return XDP_DROP;
 
   eth = data;
 
+  // Redirect based on source MAC address
   unsigned char *dst = bpf_map_lookup_elem(&redirect_params, eth->h_source);
   if (!dst)
     goto out;
 
-  // Copy destination MAC
   __builtin_memcpy(eth->h_dest, dst, ETH_ALEN);
 
+  // Lookup the interface index and redirect
   __u32 *iface_index = bpf_map_lookup_elem(&tx_port, &key);
   if (!iface_index)
     goto out;

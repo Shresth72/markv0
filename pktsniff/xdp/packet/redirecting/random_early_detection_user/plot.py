@@ -11,12 +11,12 @@ plt.figure(figsize=(12, 6))
 plt.plot(data['Time'], data['Dropped'], color='red', label='Dropped Packets')
 # Plot passed packets
 plt.plot(data['Time'], data['Passed'], color='blue', label='Passed Packets')
-# Plot processing time (you can use a secondary y-axis if desired)
-plt.plot(data['Time'], data['ProcessingTime'], color='green', label='Processing Time')
+# # Plot processing time (you can use a secondary y-axis if desired)
+# plt.plot(data['Time'], data['ProcessingTime'], color='green', label='Processing Time')
 
 plt.title('Packet Statistics Over Time')
 plt.xlabel('Time (seconds)')
-plt.ylabel('Packet Count / Processing Time')
+plt.ylabel('Packet Count')
 plt.legend()
 plt.grid()
 

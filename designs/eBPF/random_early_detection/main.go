@@ -58,11 +58,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	ifaceIdx, err := net.InterfaceByName(*interfaceName)
-	if err != nil {
-		panic(fmt.Sprintf("Failed to get interface %s: %v\n", *interfaceName, err))
-	}
-
 	spec, err := ebpf.LoadCollectionSpec("./c/kern.o")
 	if err != nil {
 		panic(err)
@@ -78,6 +73,11 @@ func main() {
 	prog := coll.Programs["xdp_redirect_map_func"]
 	if prog == nil {
 		panic("No program named 'xdp_redirect_map_func' found in collection")
+	}
+
+	ifaceIdx, err := net.InterfaceByName(*interfaceName)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to get interface %s: %v\n", *interfaceName, err))
 	}
 
 	opts := link.XDPOptions{

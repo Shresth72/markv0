@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"net"
@@ -39,25 +40,34 @@ func parseMAC(macStr string) [ETH_ALEN]byte {
 	return mac
 }
 
+func ipToUint32(ip net.IP) uint32 {
+	return binary.BigEndian.Uint32(ip.To4())
+}
+
 func main() {
+	targetIPStr := flag.String("target-ip", "", "Target server IP address for burst detection")
 	interfaceName := flag.String("interface", "", "Network interface to attach XDP program")
-	srcMACStr := flag.String("src-mac", "", "Source MAC address to populate redirect_params")
-	destMACStr := flag.String("dest-mac", "", "Destination MAC address to populate redirect_params")
-	txPortIndex := flag.Int("tx-port", -1, "Index of the port for tx_port map")
+	flag.Parse()
+
 	queueAvg := flag.Uint64(
 		"q",
 		0,
 		"Average queue length to populate queue_avg_map",
 	)
-	flag.Parse()
 
-	if *interfaceName == "" {
-		fmt.Println(
-			"No interface specified. Use the -interface flag to specify the network interface.",
-		)
+	if *targetIPStr == "" || *interfaceName == "" {
+		fmt.Println("Please specify both -target-ip and -interface.")
 		os.Exit(1)
 	}
 
+	// Get and convert target IP
+	targetIP := net.ParseIP(*targetIPStr)
+	if targetIP == nil || targetIP.To4() == nil {
+		fmt.Println("Invalid IP address format. Please use IPv4 format.")
+		os.Exit(1)
+	}
+
+	targetIPUint32 := ipToUint32(targetIP)
 	ifaceIdx, err := net.InterfaceByName(*interfaceName)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to get interface %s: %v\n", *interfaceName, err))
@@ -91,14 +101,9 @@ func main() {
 	defer lnk.Close()
 
 	// Get and populate maps
-	redirectParamsMap, ok := coll.Maps["redirect_params"]
+	targetIPMap, ok := coll.Maps["target_ip_map"]
 	if !ok {
-		panic("No map named 'redirect_params' found in collection")
-	}
-
-	txPortMap, ok := coll.Maps["tx_port"]
-	if !ok {
-		panic("No map named 'tx_port' found in collection")
+		panic("No map named 'target_ip_map' found in collection")
 	}
 
 	xdpStatsMap, ok := coll.Maps["xdp_stats_map"]
@@ -111,21 +116,9 @@ func main() {
 		panic("No map named 'telemetry_stats_map' found in collection")
 	}
 
-	// Populate redirect_params map
-	srcMAC := parseMAC(*srcMACStr)
-	destMAC := parseMAC(*destMACStr)
-
-	srcMACKey := [ETH_ALEN]byte{}
-	copy(srcMACKey[:], srcMAC[:])
-	if err := redirectParamsMap.Update(&srcMACKey, &destMAC, ebpf.UpdateAny); err != nil {
-		panic(fmt.Sprintf("Failed to update redirect_params map: %v", err))
-	}
-
-	// Populate tx_port map
-	if *txPortIndex != -1 {
-		if err := txPortMap.Update(uint32(0), uint32(*txPortIndex), ebpf.UpdateAny); err != nil {
-			panic(fmt.Sprintf("Failed to update tx_port map: %v", err))
-		}
+	var key uint32 = 0
+	if err := targetIPMap.Update(&key, &targetIPUint32, ebpf.UpdateAny); err != nil {
+		panic(fmt.Sprintf("Failed to initialize target_ip_map: %v", err))
 	}
 
 	// Initialize datarec for xdp_stats_map
