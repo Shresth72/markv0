@@ -24,13 +24,13 @@
 struct datarec {
   __u64 rx_packets;
   __u64 rx_bytes;
+  __u64 last_rxpackets;
 };
 
 struct telrec {
   __u64 timestamp;
   __u64 processing_time;
-  __u64 last_rx_packets; // New field for last recorded packets
-  __u64 last_timestamp;  // New field for last timestamp
+  __u64 last_timestamp;
 };
 
 struct {
@@ -64,50 +64,51 @@ struct {
 struct {
   __uint(type, BPF_MAP_TYPE_ARRAY);
   __type(key, __u32);
-  __type(value, __u64); // Store average queue length
+  __type(value, __u64);
   __uint(max_entries, 1);
 } queue_avg_map SEC(".maps");
 
-// Average queue length calculation
 static __always_inline __u64 calculate_avg_queue_len(__u64 prev_avg,
                                                      __u64 curr_queue_len) {
   __u64 weighted_prev_avg = (SCALE_FACTOR - W_SCALED) * prev_avg;
   __u64 weighted_curr_len = W_SCALED * curr_queue_len;
   return (weighted_prev_avg + weighted_curr_len) / SCALE_FACTOR;
+
+  // return prev_avg + W_SCALED * curr_queue_len;
 }
 
 // Burst detection based on RPS
-static __always_inline void handle_burst_detection(__u32 action) {
+static __always_inline int handle_burst_detection(__u32 action,
+                                                  __u64 current_time) {
   struct datarec *stats = bpf_map_lookup_elem(&xdp_stats_map, &action);
   struct telrec *telemetry = bpf_map_lookup_elem(&telemetry_stats_map, &action);
   __u64 *queue_len = bpf_map_lookup_elem(&queue_avg_map, &(__u32){0});
 
   if (!stats || !telemetry || !queue_len)
-    return;
+    return 0;
 
-  // Calculate RPS using current and last recorded packets/timestamp
-  __u64 current_time = bpf_ktime_get_ns();
-  if (telemetry->last_timestamp > 0) { // Ensure it's not the first iteration
-    __u64 time_diff = current_time - telemetry->last_timestamp;
-    __u64 packet_diff = stats->rx_packets - telemetry->last_rx_packets;
-
-    // Calculate RPS if time_diff is positive to avoid division by zero
-    if (time_diff > 0) {
-      __u64 rps = packet_diff / time_diff;
-
-      // Burst condition based on RPS threshold
-      if (rps > BURST_RPS_THRESH) {
-        *queue_len = BURST_RESET_QUEUE_LEN; // Reset queue length during burst
-      }
-    }
+  if (telemetry->last_timestamp == 0 || stats->last_rxpackets == 0) {
+    telemetry->last_timestamp = current_time;
+    stats->last_rxpackets = stats->rx_packets;
+    return 0;
   }
 
-  // Update telemetry with current stats for next calculation
-  telemetry->last_rx_packets = stats->rx_packets;
+  __u64 elapsed_time = current_time - telemetry->last_timestamp;
+
+  if (elapsed_time == 0)
+    return 0;
+
+  __u64 rps = (stats->rx_packets - stats->last_rxpackets) / elapsed_time;
+
+  stats->last_rxpackets = stats->rx_packets;
   telemetry->last_timestamp = current_time;
+
+  if (rps > BURST_RPS_THRESH) {
+    return 1;
+  }
+  return 0;
 }
 
-// Record action stats
 static __always_inline __u32 xdp_stats_record_action(struct xdp_md *ctx,
                                                      __u32 action,
                                                      __u64 start) {
@@ -141,24 +142,22 @@ int xdp_redirect_map_func(struct xdp_md *ctx) {
 
   struct ethhdr *eth;
   __u32 action = XDP_PASS;
-  __u64 queue_len = 50; // Default queue length if dynamic source is unavailable
+  __u64 queue_len = 50;
   __u32 key = 0;
 
-  // Retrieve and update average queue length
   __u64 *prev_avg = bpf_map_lookup_elem(&queue_avg_map, &key);
   if (!prev_avg) {
     action = XDP_DROP;
     goto out;
   }
 
-  // Burst detection and queue reset if necessary
-  handle_burst_detection(action);
+  __u64 is_burst = handle_burst_detection(action, start);
+  if (is_burst) {
+  }
 
-  // Update average queue length
   __u64 new_avg = calculate_avg_queue_len(*prev_avg, queue_len);
   bpf_map_update_elem(&queue_avg_map, &key, &new_avg, BPF_ANY);
 
-  // Random Early Detection (RED) for queue management
   if (new_avg >= RED_MAX_THRESH) {
     action = XDP_DROP;
   } else if (new_avg <= RED_MIN_THRESH) {
@@ -166,25 +165,23 @@ int xdp_redirect_map_func(struct xdp_md *ctx) {
   } else {
     __u64 drop_prob = (new_avg - RED_MIN_THRESH) * DROP_PROB_MAX /
                       (RED_MAX_THRESH - RED_MIN_THRESH);
+
     if (bpf_get_prandom_u32() % 100 < drop_prob) {
       action = XDP_DROP;
     }
   }
 
-  // Check packet length for valid Ethernet header
   if (data + sizeof(struct ethhdr) > data_end)
     return XDP_DROP;
 
   eth = data;
 
-  // Redirect based on source MAC address
   unsigned char *dst = bpf_map_lookup_elem(&redirect_params, eth->h_source);
   if (!dst)
     goto out;
 
   __builtin_memcpy(eth->h_dest, dst, ETH_ALEN);
 
-  // Lookup the interface index and redirect
   __u32 *iface_index = bpf_map_lookup_elem(&tx_port, &key);
   if (!iface_index)
     goto out;

@@ -24,15 +24,15 @@ const (
 )
 
 type datarec struct {
-	RxPackets uint64
-	RxBytes   uint64
+	RxPackets     uint64
+	RxBytes       uint64
+	LastRxPackets uint64
 }
 
 type telrec struct {
 	Timestamp      uint64
 	ProcessingTime uint64
-	LastRxPackets  uint64 // New field for last recorded packets
-	LastTimestamp  uint64 // New field for last timestamp
+	LastTimestamp  uint64
 }
 
 func parseMAC(macStr string) [ETH_ALEN]byte {
@@ -123,14 +123,14 @@ func main() {
 		}
 	}
 
-	dataRec := datarec{RxPackets: 0, RxBytes: 0}
+	dataRec := datarec{RxPackets: 0, RxBytes: 0, LastRxPackets: 0}
 	for i := 0; i < 5; i++ {
 		if err := xdpStatsMap.Update(uint32(i), &dataRec, ebpf.UpdateAny); err != nil {
 			panic(fmt.Sprintf("Failed to initialize xdp_stats_map: %v", err))
 		}
 	}
 
-	telRec := telrec{Timestamp: 0, ProcessingTime: 0, LastRxPackets: 0, LastTimestamp: 0}
+	telRec := telrec{Timestamp: 0, ProcessingTime: 0, LastTimestamp: 0}
 	for i := 0; i < 5; i++ {
 		if err := telemetryStatsMap.Update(uint32(i), &telRec, ebpf.UpdateAny); err != nil {
 			panic(fmt.Sprintf("Failed to initialize telemetry_stats_map: %v", err))
@@ -148,7 +148,7 @@ func main() {
 
 	fmt.Println("Successfully loaded and attached BPF program and populated maps")
 
-	go collectStats2(xdpStatsMap, telemetryStatsMap)
+	go collectStats(xdpStatsMap, telemetryStatsMap)
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
@@ -157,8 +157,6 @@ func main() {
 
 func collectStats(xdpStatsMap *ebpf.Map, telemetryStatsMap *ebpf.Map) {
 	startTime := time.Now()
-	var lastRxPackets int64
-	lastTimestamp := startTime
 
 	// Create or open the CSV file
 	file, err := os.Create("stats.csv")
@@ -180,8 +178,10 @@ func collectStats(xdpStatsMap *ebpf.Map, telemetryStatsMap *ebpf.Map) {
 	for {
 		var dropped, passed int64
 		totalRxPackets := int64(0)
+		var processingTime int64 = 0
+		rps := float64(0)
 
-		// Fetch packet statistics
+		// Fetch packet statistics from xdpStatsMap and calculate dropped and passed packets
 		for i := 0; i < 5; i++ {
 			var stats datarec
 			if err := xdpStatsMap.Lookup(uint32(i), &stats); err != nil {
@@ -197,29 +197,32 @@ func collectStats(xdpStatsMap *ebpf.Map, telemetryStatsMap *ebpf.Map) {
 			}
 		}
 
-		// Calculate RPS (Requests per Second)
-		currentTime := time.Now()
-		elapsedTime := currentTime.Sub(lastTimestamp).Seconds()
-		rps := float64(totalRxPackets-lastRxPackets) / elapsedTime
-
-		// Update last observed values
-		lastRxPackets = totalRxPackets
-		lastTimestamp = currentTime
-
-		// Fetch processing time from telemetryStatsMap
-		processingTime := int64(0) // Default if no processing times are available
+		// Fetch processing time and calculate RPS based on last timestamp and packet count
 		for i := 0; i < 5; i++ {
 			var tel telrec
+			var stats datarec
 			if err := telemetryStatsMap.Lookup(uint32(i), &tel); err != nil {
 				fmt.Printf("Failed to get telemetry data for key %d: %v\n", i, err)
 				continue
 			}
+			if err := xdpStatsMap.Lookup(uint32(i), &stats); err != nil {
+				fmt.Printf("Failed to get xdp stats for key %d: %v\n", i, err)
+				continue
+			}
+
+			// Calculate processing time
 			if tel.ProcessingTime != 0 {
 				processingTime = int64(tel.ProcessingTime)
 			}
+
+			// Calculate RPS
+			elapsedTime := float64(time.Now().UnixNano()-int64(tel.LastTimestamp)) / 1e9
+			packetDifference := float64(stats.RxPackets - stats.LastRxPackets)
+			if elapsedTime > 0 {
+				rps = packetDifference / elapsedTime
+			}
 		}
 
-		// Calculate elapsed time from start
 		elapsed := time.Since(startTime).Seconds()
 
 		// Record each data point for CSV output
