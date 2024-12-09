@@ -1,25 +1,24 @@
 #!/bin/bash
 
-# Check if an interface argument is provided
-if [ "$#" -ne 1 ]; then
-    echo "Usage: $0 <interface>"
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <interface> <packet_count>"
     exit 1
 fi
 
-# Assign the first argument to the INTERFACE variable
 INTERFACE="$1"
+PACKET_COUNT="$2"
 
-# Number of packets to send in each burst
-PACKET_COUNT=500
+if ! [[ "$PACKET_COUNT" =~ ^[0-9]+$ ]]; then
+    echo "Error: Packet count must be a positive integer."
+    exit 1
+fi
 
-# Infinite loop to keep sending packets
 echo "Sending $PACKET_COUNT packets continuously on interface $INTERFACE..."
 
 while true; do
     # Send 300 ICMP packets using ping in flood mode
     sudo ping -I "$INTERFACE" -f -c "$PACKET_COUNT" -s 120 8.8.8.8  # Sending to a known address (Google)
 
-    # Check if ping executed successfully
     if [[ $? -eq 0 ]]; then
         echo "Successfully sent $PACKET_COUNT packets."
     else
@@ -27,6 +26,5 @@ while true; do
         exit 1
     fi
 
-    # Wait for half a second before the next burst
     sleep 0.5
 done

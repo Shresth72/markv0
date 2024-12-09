@@ -1,0 +1,12 @@
+- Packet
+- Packet Capturing (What why)
+- Linux
+- XDP (with kernel space and user space)
+- eBPF
+- Network Traffic Types
+- RED
+- Markov and Poisson
+- Modifications and process
+
+- PREPARE FLOWCHARTS
+- PREPARE TABLES
